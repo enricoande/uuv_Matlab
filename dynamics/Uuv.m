@@ -1,11 +1,14 @@
 classdef Uuv
-% Uuv.m     e.anderlini@ucl.ac.uk     07/11/2017
+% Uuv.m     e.anderlini@ucl.ac.uk     08/11/2017
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This class computes the dynamics of an UUV.
+% N.B.: Have a thorough look at relative and absolute velocity concepts -
+% they may be inverted and this needs to be rectified.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     %% Accessible properties:
     properties
+        % Physical properties:
         buoyancy;   % buoyancy force
         density;    % water density
         g;          % gravitational acceleration
@@ -23,18 +26,29 @@ classdef Uuv
         Mtot;       % total mass matrix
         M_RB;       % rigid body mass matrix
         S_r_g;      % skew symmetric matrix
+        % Simulation parameter:
+        dt;         % time step
+        % Output values:
         f_c;        % Coriolis and centripetal force vector
         f_d;        % damping force vector
         f_h;        % hydrostatic restoring force vector
-        J;          % transformation matrix
         nu_r;       % relative velocity vector
     end
     
+    %% Protected properties:
+    properties (Access = protected)
+        J;          % transformation matrix
+        n;          % vector of propellers' revolutions
+        nu_c;       % current velocity
+        propulsion; % propulsion object
+%         x;          % state vector
+%         x_dot;      % state derivative vector
+    end
     
     %% Accessible methods:
     methods 
         %% Initialization function:
-        function obj = Uuv(uuv)
+        function obj = Uuv(uuv,dt)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Input:
             % uuv: structure with input data
@@ -49,7 +63,9 @@ classdef Uuv
             obj.B = uuv.B;
             obj.G = uuv.G;
             obj.volume = uuv.volume;
-            
+            obj.dt = dt;
+            %Initialize propulsion object:
+            obj.propulsion = Rov_propulsion(uuv);
             % Compute the missing properties:
             obj.mass = obj.M_RB(1,1);
             obj.I_b = obj.M_RB(3:6,3:6);
@@ -59,7 +75,23 @@ classdef Uuv
             obj.Mtot = obj.M_RB+obj.M_A;
         end
         
-        %%
+        %% Update the system dynamics:
+        function [x,obj] = update_dynamics(obj,n,nu_c)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Input:
+            % n:    propeller revolutions (rps)
+            % nu_c: current velocity (m/s)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Store the current velocity & propeller revolutions in memory:
+            obj.nu_c = nu_c;
+            obj.n = n;
+            % Compute the state vector for the next time step:
+            x = obj.ode4(x0);
+            % Get the relative velocity & force vectors for plotting:
+            obj = obj.relative_velocity(x(7:12));
+            obj = obj.damping_force();
+            obj = obj.hyrostatic_force(x(4),x(5));
+        end
     end
     
     %% Protected methods:
@@ -103,15 +135,34 @@ classdef Uuv
             obj.J = [R,zeros(6,6);zeros(6,6),T];
         end
         
+        %% Compute the Coriolis & centripetal matrix for the rigid body:
+        function obj = coriolis_matrix_rigid_body(obj,nu)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Input:
+            % nu: six-dimensional velocity vector
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            mSv1 = obj.mass*obj.skew(nu(1:3));
+            mSv2 = obj.mass*obj.skew(nu(4:6));
+            obj.C_RB = [zeros(3,3),-mSv1-mSv2*obj.S_r_g;...
+                -mSv1+obj.S_r_g*mSv2,-obj.skew(obj.I_b*nu(4:6))];
+        end
+        
+        %% Compute the Coriolis & centripetal matrix for the added mass:
+        function obj = coriolis_matrix_added_mass(obj)
+            Av = obj.M_A*obj.nu_r;
+            SAv1 = obj.skew(Av(1:3));
+            obj.C_A = [zeros(3,3),-SAv1;...
+                -SAv1,-obj.skew(Av(4:6))];
+        end
+        
         %% Compute the relative velocity:
-        function obj = relative_velocity(obj,nu,nu_c)
+        function obj = relative_velocity(obj,nu)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Input:
             % nu:   UUV velocity vector in body-fixed reference frame
-            % nu_c: current velocity vector in inertial reference frame
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Get the current velocity in the body fixed reference frame:
-            nu_c_b = obj.J\nu_c;  
+            nu_c_b = obj.J\obj.nu_c;  
             % N.B.: As an alternative, the orthonormality of J can be
             % exploited.
             % Compute the relative velocity in the body-fixed coordinates:
@@ -145,15 +196,51 @@ classdef Uuv
         end
         
         %% Compute the Coriolis and centripetal force vector:
-        
-        %% Compute the state derivative:
-        function x_dot = derivative(obj,tau)
+        function obj = coriolis_force(obj,nu)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Input:
-            % tau: 6 degrees of freedom thrust vector
+            % nu: six-dimensional velocity vector
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj = obj.coriolis_matrix_rigid_body(nu);
+            obj = obj.coriolis_matrix_added_mass();
+            obj.f_c = obj.C_RB*nu + obj.C_A*obj.nu_r;
+        end
+        
+        %% Compute the state derivative:
+        function x_dot = derivative(obj,x,n)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Input:
+            % x0: initial state vector
+            % n:  vector of propeller revolutions
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Update the relative velocity vector:
+            obj = obj.relative_velocity(x(7:12));
+            % Update the damping and hydrostatic forces:
+            obj = obj.damping_force();
+            obj = obj.hyrostatic_force(x(4),x(5));
+            % Compute the thrust vector:
+            tau = obj.propulsion.get_thrust(n,obj.nu_r);
+            % Compute the state vector derivative
             x_dot = [obj.J*obj.nu_r;...
                 obj.Mtot\(-obj.f_h-obj.f_d+tau)];
+        end
+        
+        %% Integrate the derivative with a 4th-order Runge-Kutta method:
+        function x = ode4(obj,x0)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % Input:
+            % x0: initial state vector
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            dxdt1 = obj.derivative(x0);
+            x1 = x0 + dxdt1*obj.dt/2;
+            dxdt2 = obj.derivative(x1);
+            x2 = x0 + dxdt2*obj.dt/2;
+            dxdt3 = obj.derivative(x2);
+            x3 = x0 + dxdt3*obj.dt;
+            dxdt4 = obj.derivative(x3);
+            
+            % Estimate the state vector at the next time step:
+            x = x0 + (dxdt1+2*(dxdt2+dxdt3)+dxdt4)*obj.dt/6;
         end
     end    
 end
