@@ -88,7 +88,7 @@ classdef Rov_propulsion
                 % Compute the thrust coefficient for the propulsor:
                 for k=1:obj.n_kT
                     obj.k_T(i) = obj.k_T(i) +...
-                        obj.k_T_c(j,k)*obj.j_a^(obj.n_kT-k);
+                        obj.k_T_c(j,k)*obj.j_a(i)^(obj.n_kT-k);
                 end
             end
         end

@@ -33,6 +33,7 @@ classdef Uuv
         f_d;        % damping force vector
         f_h;        % hydrostatic restoring force vector
         nu_r;       % relative velocity vector
+        tau;        % thrust force vector
     end
     
     %% Protected properties:
@@ -68,7 +69,7 @@ classdef Uuv
             obj.propulsion = Rov_propulsion(uuv);
             % Compute the missing properties:
             obj.mass = obj.M_RB(1,1);
-            obj.I_b = obj.M_RB(3:6,3:6);
+            obj.I_b = obj.M_RB(4:6,4:6);
             obj.buoyancy = obj.g * obj.density * obj.volume;
             obj.weight = obj.g * obj.mass;
             obj.S_r_g = obj.skew(obj.G);
@@ -76,9 +77,10 @@ classdef Uuv
         end
         
         %% Update the system dynamics:
-        function [x,obj] = update_dynamics(obj,n,nu_c)
+        function [x,obj] = update_dynamics(obj,x0,n,nu_c)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Input:
+            % x0:   state vector at the previous step
             % n:    propeller revolutions (rps)
             % nu_c: current velocity (m/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -87,10 +89,13 @@ classdef Uuv
             obj.n = n;
             % Compute the state vector for the next time step:
             x = obj.ode4(x0);
-            % Get the relative velocity & force vectors for plotting:
+            % Get the force vectors for plotting:
+            obj = transformation_matrix(obj,x(4),x(5),x(6));
             obj = obj.relative_velocity(x(7:12));
             obj = obj.damping_force();
             obj = obj.hyrostatic_force(x(4),x(5));
+            obj = obj.coriolis_force(x(7:12));
+            obj.tau = obj.propulsion.get_thrust(obj.n,obj.nu_r);
         end
     end
     
@@ -120,19 +125,19 @@ classdef Uuv
             % psi:   yaw angle
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Translational transformation matrix:
-            R = [cos(psi)*cos(theta), cos(psi)*sin(phi)*sin(theta)...
-                -cos(phi)*sin(psi), sin(phi)*sin(psi)+cos(phi)*cos(psi)...
-                *sin(theta);...
-                cos(theta)*sin(psi), cos(phi)*cos(psi)+sin(phi)...
-                *sin(psi)*sin(theta), cos(phi)*sin(psi)*sin(theta)...
-                -cos(psi)*sin(phi);
-                -sin(theta), cos(theta)*sin(phi), cos(theta)*cos(phi)];
+            R = [cos(psi)*cos(theta),...
+                cos(psi)*sin(phi)*sin(theta)-cos(phi)*sin(psi),...
+                sin(phi)*sin(psi)+cos(phi)*cos(psi)*sin(theta);...
+                cos(theta)*sin(psi),...
+                cos(phi)*cos(psi)+sin(phi)*sin(psi)*sin(theta),...
+                cos(phi)*sin(psi)*sin(theta)-cos(psi)*sin(phi);
+                -sin(theta),cos(theta)*sin(phi),cos(theta)*cos(phi)];
             % Rotational transformation matrix:
             T = [1, sin(phi)*tan(theta), cos(phi)*tan(theta);...
                 0, cos(phi), -sin(phi);...
                 0, sin(phi)/cos(theta), cos(phi)/cos(theta)];
             % 6 degrees of freedom transformation matrix:
-            obj.J = [R,zeros(6,6);zeros(6,6),T];
+            obj.J = [R,zeros(3,3);zeros(3,3),T];
         end
         
         %% Compute the Coriolis & centripetal matrix for the rigid body:
@@ -207,22 +212,24 @@ classdef Uuv
         end
         
         %% Compute the state derivative:
-        function x_dot = derivative(obj,x,n)
+        function x_dot = derivative(obj,x)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Input:
             % x0: initial state vector
             % n:  vector of propeller revolutions
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % Update the relative velocity vector:
+            obj = transformation_matrix(obj,x(4),x(5),x(6));
             obj = obj.relative_velocity(x(7:12));
-            % Update the damping and hydrostatic forces:
+            % Update the vector forces:
             obj = obj.damping_force();
             obj = obj.hyrostatic_force(x(4),x(5));
+            obj = obj.coriolis_force(x(7:12));
             % Compute the thrust vector:
-            tau = obj.propulsion.get_thrust(n,obj.nu_r);
+            obj.tau = obj.propulsion.get_thrust(obj.n,obj.nu_r);
             % Compute the state vector derivative
             x_dot = [obj.J*obj.nu_r;...
-                obj.Mtot\(-obj.f_h-obj.f_d+tau)];
+                obj.Mtot\(-obj.f_h-obj.f_d+obj.tau)];
         end
         
         %% Integrate the derivative with a 4th-order Runge-Kutta method:
