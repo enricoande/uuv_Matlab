@@ -71,7 +71,13 @@ classdef Rov_propulsion
             % nu_r: relative velocity of the ROV in body-fixed coordinates
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             v_a = obj.T\nu_r;
-            obj.j_a = v_a ./ (obj.n .* obj.d);
+            for i=1:obj.n_prop
+                if obj.n(i)==0
+                    obj.j_a(i) = 0;
+                else
+                    obj.j_a(i) = v_a(i) / (obj.n(i) * obj.d(i));
+                end
+            end
         end
         
         %% Compute the thrust coefficient vector:

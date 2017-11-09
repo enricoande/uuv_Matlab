@@ -13,8 +13,8 @@ tEnd = 20;              % simulation end time (s)
 t    = (0:dt:tEnd);     % time stamp (s)
 nT   = length(t);       % no. time steps
 % Physical properties:
-nu_c = zeros(6,1);      % current velocity (m/s)
-n = zeros(5,1);         % propellers' revolutions (rps)
+nu_c = [0;0;0;0;0;0];   % current velocity (m/s)
+n = [0;0;0;0;0];        % propellers' revolutions (rps)
 % Waypoints and circle of acceptance:
 waypoints = [0,0,0;
              2,0,0;

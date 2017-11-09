@@ -71,7 +71,7 @@ classdef Uuv
             obj.mass = obj.M_RB(1,1);
             obj.I_b = obj.M_RB(4:6,4:6);
             obj.buoyancy = obj.g * obj.density * obj.volume;
-            obj.weight = obj.g * obj.mass;
+            obj.weight = obj.buoyancy;  %obj.g * obj.mass;
             obj.S_r_g = obj.skew(obj.G);
             obj.Mtot = obj.M_RB+obj.M_A;
         end
@@ -228,8 +228,8 @@ classdef Uuv
             % Compute the thrust vector:
             obj.tau = obj.propulsion.get_thrust(obj.n,obj.nu_r);
             % Compute the state vector derivative
-            x_dot = [obj.J*obj.nu_r;...
-                obj.Mtot\(-obj.f_h-obj.f_d+obj.tau)];
+            x_dot = [obj.J*x(7:12);...
+                obj.Mtot\(-obj.f_h-obj.f_d-obj.f_c+obj.tau)];
         end
         
         %% Integrate the derivative with a 4th-order Runge-Kutta method:
