@@ -26,6 +26,8 @@ classdef Uuv
         Mtot;       % total mass matrix
         M_RB;       % rigid body mass matrix
         S_r_g;      % skew symmetric matrix
+        % Propulsion object:
+        propulsion; % propulsion object
         % Simulation parameter:
         dt;         % time step
         % Output values:
@@ -41,7 +43,6 @@ classdef Uuv
         J;          % transformation matrix
         n;          % vector of propellers' revolutions
         nu_c;       % current velocity
-        propulsion; % propulsion object
 %         x;          % state vector
 %         x_dot;      % state derivative vector
     end

@@ -1,4 +1,4 @@
-classdef Lspi
+classdef Lspi < handle
 % Lspi.m     e.anderlini@ucl.ac.uk     19/10/2017
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This class implements least-squares policy iteration (LSPI).
@@ -94,16 +94,17 @@ classdef Lspi
                 % Evaluate the current policy (and implicitly improve):
                 switch obj.algorithm
                     case 1
-                        obj.policy = obj.policy.set_weights(lsq(samples));
+                        obj.policy = obj.policy.set_weights(...
+                            obj.lsq(samples));
                     case 2
                         obj.policy = obj.policy.set_weights(...
-                            lsqfast(samples,firsttime));
+                            obj.lsqfast(samples,firsttime));
                     case 3
                         obj.policy = obj.policy.set_weights(...
-                            lsqbe(samples));
+                            obj.lsqbe(samples));
                     case 4
                         obj.policy = obj.policy.set_weights(...
-                            lsqbefast(samples,firsttime));
+                            obj.lsqbefast(samples,firsttime));
                 end
 
                 % Compute the distance between the current and the previous

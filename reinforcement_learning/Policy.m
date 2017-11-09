@@ -1,4 +1,4 @@
-classdef Policy
+classdef Policy < handle
 % Policy.m     e.anderlini@ucl.ac.uk     19/10/2017
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This class obtains the policy for a reinforcement learning problem.
@@ -29,7 +29,8 @@ classdef Policy
         basis;              % type of basis function
         centres;            % list of centres of the RBFs
         exploration_rate;   % exploration rate
-        mu;                 % width of each RBF
+        mag_states;         % amplitude of the state variables
+        mu;                 % width of each standardized RBF
         nbasis;             % no. basis functions overall
         states;             % list of discrete states
         weights;            % weights of the linear function approximation
@@ -71,13 +72,17 @@ classdef Policy
                 case 'basis_exact'
                     obj.basis = basis;
                     obj.states = states;
+                    obj.mag_states = ones(1,size(states,2));
                     obj.ns = size(states,1);
+                    obj.nbasis = obj.ns*obj.na;
                 case 'basis_rbf'
                     obj.basis = basis;
-                    obj.centres = states;
-                    obj.mu = mu;
                     obj.nrbf = size(states,1);
-                    obj.weights = zeros((obj.nrbf+1)*obj.na,1);
+                    obj.mag_states = (max(states)-min(states))/2;
+                    obj.centres =states./repmat(obj.mag_states,obj.nrbf,1);
+                    obj.mu = mu;
+                    obj.nbasis = (obj.nrbf+1)*obj.na;
+                    obj.weights = zeros(obj.nbasis,1);
                 otherwise
                     error(['Only exact and radial basis functions',...
                     'supported']);
@@ -95,21 +100,21 @@ classdef Policy
         end
             
         %% Select an action:
-        function obj = select_action(obj,state)            
+        function a = select_action(obj,state)            
             % Store the current state:
-            obj.state = state;
+            obj.state = state ./ obj.mag_states;
             % Compute the state-action values for the current state:
             obj = obj.qvalues();
             % Get the current action with an epsilon-greedy policy:
-            obj.a = obj.eGreedy();
+            a = obj.eGreedy();
         end
         
         %% Evaluate the features:
         function phi = get_features(obj,state,action)
             % Store the current state:
-            obj.state = state;
+            obj.state = state ./ obj.mag_states;
             % Get the features:
-            phi = feval(obj.basis,action);
+            phi = obj.basis_fcn(action);  %feval(obj.basis,action);
         end
     end
     
@@ -125,7 +130,7 @@ classdef Policy
         
         %% Get the Q-value function for current state and action:
         function q = qvalue(obj,action)
-            phi = feval(obj.basis,action);
+            phi = obj.basis_fcn(action);  %feval(['obj.',obj.basis],action);
             q = phi' * obj.weights;
         end
         
@@ -151,6 +156,15 @@ classdef Policy
             else                       
                 a = randi(obj.na);  % random integer based on a uniform
             end                     % distribution
+        end
+        
+        %% Find the features for the given basis functions type:
+        function phi = basis_fcn(obj,action)
+            if obj.basis == 'basis_rbf'
+                phi = obj.basis_rbf(action);
+            else
+                phi = obj.basis_exact(action);
+            end
         end
         
         %% Find the features for the exact basis functions:
