@@ -36,7 +36,7 @@ uuv = Uuv(rov,dt);
 epsilon = 0.8;            % exploration rate
 exploration_decay = 0.99; % exploration rate decay
 delta = 0.95;             % discount factor
-n_episodes = 100;         % no. episodes
+n_episodes = 49;         % no. episodes
 
 % Action space:
 actions = ((-600:200:600)/60)';   % n (rps)
